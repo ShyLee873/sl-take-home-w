@@ -1,0 +1,46 @@
+---
+# ============================================================================ #
+# This is a shared PostgreSQL instance. Data persists between runs by saving to
+# a volume in ../volumes/database/data.
+# It exposes port 5433 to the host for ease of local development and access. You
+# can source the following to gain access:
+# ```
+# export PGUSER=postgres
+# export PGPASSWORD=postgres
+# export PGHOST=localhost
+# export PGPORT=5433
+# ```
+# ============================================================================ #
+include:
+  - network.yml
+
+services:
+  database:
+    image: postgres:17
+    restart: unless-stopped
+    container_name: database
+    hostname: db01
+    labels:
+      application: database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - type: bind
+        source: ../volumes/database/data
+        target: /var/lib/postgresql/data
+        consistency: delegated
+    ports:
+      - "${PGPORT:-5433}:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    shm_size: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    networks:
+      - dbnet

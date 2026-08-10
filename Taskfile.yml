@@ -1,0 +1,86 @@
+# https://taskfile.dev
+
+version: "3"
+
+tasks:
+  init:
+    desc: "Initialize the project (bring up Docker, configure RabbitMQ)"
+    silent: true
+    cmds:
+      - cmd: mkdir -p docker/volumes/database/data docker/volumes/rabbitmq/node01/data
+      - task: docker:up
+      - task: docker:wait
+      - task: init-rabbitmq
+
+  docker:wait:
+    desc: "Wait for all containers to report healthy"
+    silent: true
+    cmds:
+      - cmd: |-
+          echo "Waiting for services to be healthy..."
+          for container in rabbitmq database; do
+            echo -n "  $container: "
+            until docker inspect $container 2>/dev/null | grep -q '"Status": "healthy"'; do
+              echo -n "."
+              sleep 2
+            done
+            echo " ready"
+          done
+
+  docker:up:
+    desc: "Bring up the Docker containers"
+    dir: docker
+    cmds:
+      - docker compose up -d
+
+  docker:down:
+    desc: "Bring down the Docker containers"
+    dir: docker
+    cmds:
+      - docker compose down
+
+  init-rabbitmq:
+    desc: "Configure RabbitMQ vhost, user, exchange, and queue"
+    dir: docker
+    cmds:
+      - docker compose exec rabbitmq rabbitmqctl add_user app_user rabbitmq
+      - docker compose exec rabbitmq rabbitmqctl set_user_tags app_user administrator
+      - docker compose exec rabbitmq rabbitmqctl add_vhost homework
+      - docker compose exec rabbitmq rabbitmqctl set_permissions -p homework admin ".*" ".*" ".*"
+      - docker compose exec rabbitmq rabbitmqctl set_permissions -p homework app_user ".*" ".*" ".*"
+      - docker compose exec rabbitmq rabbitmq-plugins enable rabbitmq_shovel rabbitmq_shovel_management
+      - docker compose exec rabbitmq rabbitmqadmin -u app_user -p rabbitmq declare exchange --vhost homework --name waymark --type direct
+      - docker compose exec rabbitmq rabbitmqadmin -u app_user -p rabbitmq declare queue --vhost homework --name work-inbound --durable true
+      - docker compose exec rabbitmq rabbitmqadmin -u app_user -p rabbitmq declare binding --vhost homework --source waymark --destination-type queue --destination work-inbound --routing-key inbound
+
+  destroy:
+    desc: "Tear down the project and remove the volume data"
+    dir: docker
+    ignore_error: true
+    cmds:
+      - docker compose exec rabbitmq rabbitmqctl delete_vhost homework
+      - docker compose exec rabbitmq rabbitmqctl delete_user app_user
+      - task: docker:down
+      - cmd: rm -rf volumes/database/data volumes/rabbitmq/node01/data
+
+  rabbitmq:ui:
+    desc: "Print RabbitMQ Management UI connection details"
+    silent: true
+    cmds:
+      - echo "Credentials => user:admin, password:rabbitmq"
+      - echo "URL         => http://localhost:15672"
+
+  db:psql:
+    desc: "Open a psql shell to the running database"
+    dir: docker
+    cmds:
+      - docker compose exec -e PGPASSWORD=postgres database psql -U postgres
+
+  db:creds:
+    desc: "Print PostgreSQL connection environment variables for use in shell scripts"
+    silent: true
+    cmds:
+      - echo "export PGUSER=postgres"
+      - echo "export PGPASSWORD=postgres"
+      - echo "export PGHOST=localhost"
+      - echo "export PGPORT=5433"

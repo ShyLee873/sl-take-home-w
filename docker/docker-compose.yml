@@ -1,0 +1,6 @@
+name: waymark_homework
+
+include:
+  - ./compose/network.yml
+  - ./compose/database.yml
+  - ./compose/rabbitmq.yml

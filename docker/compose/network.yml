@@ -1,0 +1,16 @@
+---
+# ============================================================================ #
+# This is where all of the Global Networks are configured. You should include
+# this file in all of the other files and refer to the correct network for each
+# service.
+# ============================================================================ #
+networks:
+  pubnet:
+    name: waymark_pubnet
+    driver: bridge
+  appnet:
+    name: waymark_appnet
+    driver: bridge
+  dbnet:
+    name: waymark_dbnet
+    driver: bridge

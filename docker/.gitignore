@@ -1,0 +1,2 @@
+volumes/database/data
+volumes/rabbitmq/*/data
