@@ -34,7 +34,7 @@ defmodule OrderProcessor.Orders.OrderItem do
       :line_total_cents
     ])
     |> validate_number(:quantity, greater_than: 0)
-    |> validate_number(:unit_price, greater_than_or_equal_to: 0)
+    |> validate_number(:unit_price_cents, greater_than_or_equal_to: 0)
     |> validate_number(:line_total_cents, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:order_id)
   end
