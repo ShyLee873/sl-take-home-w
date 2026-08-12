@@ -25,7 +25,7 @@ defmodule OrderProcessor.Orders do
       |> Multi.insert(:order, Order.changeset(%Order{}, order_attrs))
       |> add_item_inserts(prepared_items)
       |> Repo.transact()
-      |> normalize_result()
+      |> normalize_result(payload["event_id"])
     end
   end
 
@@ -79,11 +79,34 @@ defmodule OrderProcessor.Orders do
     end)
   end
 
-  defp normalize_result({:ok, %{order: order}}) do
+  defp normalize_result({:ok, %{order: order}}, _event_id) do
     {:ok, Repo.preload(order, :items)}
   end
 
-  defp normalize_result({:error, _operation, reason, _changes}) do
-    {:error, reason}
+  defp normalize_result(
+        {:error, _operation, %Ecto.Changeset{} = changeset, _changes},
+        event_id
+      ) do
+    if duplicate_event?(changeset) do
+      case Repo.get_by(Order, event_id: event_id) do
+        nil ->
+          {:error, changeset}
+
+        order ->
+          {:ok, Repo.preload(order, :items)}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  defp duplicate_event?(changeset) do
+    Enum.any?(changeset.errors, fn
+      {:event_id, {_message, options}} ->
+        options[:constraint] == :unique
+
+      _ ->
+        false
+    end)
   end
 end
