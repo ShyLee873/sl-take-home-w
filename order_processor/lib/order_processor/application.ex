@@ -6,7 +6,9 @@ defmodule OrderProcessor.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      OrderProcessor.Repo
+      OrderProcessor.Repo,
+      OrderProcessor.OrderWorker,
+      OrderProcessor.RabbitConsumer
     ]
 
     opts = [strategy: :one_for_one, name: OrderProcessor.Supervisor]

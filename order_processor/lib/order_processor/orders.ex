@@ -84,9 +84,9 @@ defmodule OrderProcessor.Orders do
   end
 
   defp normalize_result(
-        {:error, _operation, %Ecto.Changeset{} = changeset, _changes},
-        event_id
-      ) do
+         {:error, _operation, %Ecto.Changeset{} = changeset, _changes},
+         event_id
+       ) do
     if duplicate_event?(changeset) do
       case Repo.get_by(Order, event_id: event_id) do
         nil ->
