@@ -1,147 +1,237 @@
-# Waymark Junior Software Engineer — Take-Home Assessment
+# Order Processor
 
-Welcome! This exercise gives you a chance to show us how you think and how you build. There are no trick questions and no single correct answer. We're interested in the decisions you make and how you reason about them.
+A small Elixir/OTP application that consumes order messages from Rabbit MQ, process them through a GenServer-backend worker and persists the results to PostgreSQL using Ecto.
 
-**Time box:** Plan for roughly four hours. We're not timing you, but this is the scope we designed for. A focused, incomplete solution with a thoughtful README is more valuable to us than an exhaustive one with no explanation.
-
----
-
-## The Scenario
-
-Build a small Elixir application that processes work items asynchronously. The application should consume messages from a RabbitMQ queue, process each item using a GenServer-backed worker, and persist results to a PostgreSQL database.
-
-**The domain is yours to choose.** Pick something that makes the data model feel real to you: a job queue, a notification dispatcher, an order processor, a sensor event pipeline. We've intentionally left this open because we're more interested in *how* you build it than *what* it does.
-
----
+The app accepts orders with one or more line items, calculates line totals and the overall order total then stores the order and its items in a single database transaction.
 
 ## Requirements
 
-Your submission must include all of the following:
+- Elixir 1.20+
+- Erlang/OTP 28+
+- Docker
+-Task
 
-1. **A working Elixir OTP application**
-   - Phoenix is not required. A plain Mix application is fine.
-   - The application should start cleanly and process messages end-to-end.
-
-2. **A RabbitMQ consumer backed by a GenServer worker**
-   - Messages arrive on the `work-inbound` queue (see infrastructure below).
-   - A GenServer (or pool of GenServers) should handle processing of each message.
-   - Internally we use [Lapin](https://github.com/lbonn/lapin), but the choice is yours. [Broadway RabbitMQ](https://github.com/dashbitco/broadway_rabbitmq) and the [amqp](https://github.com/pma/amqp) library are both popular options.
-
-3. **A PostgreSQL schema with at least one Ecto migration**
-   - Define the entities your domain needs.
-   - Schema should reflect real relational thinking: primary keys, foreign keys where appropriate, sensible column types.
-
-4. **A Git repository with an incremental commit history**
-   - Work in commits that tell the story of how you built the thing.
-
-5. **A README in your repository**
-   - How to run your application against the provided infrastructure.
-   - The design decisions you made and why.
-   - What you would do differently or build next with more time.
-
----
-
-## A Note on AI Tooling
-
-At Waymark, we think of software as a craft. AI tooling, used thoughtfully, is part of that craft. It can surface edge cases, suggest cleaner patterns, and push you toward better solutions. We're interested in whether you use your tools to produce work you're proud of, not just work you produced quickly.
-
-You're welcome and encouraged to use whatever AI tools you reach for day-to-day. There are no restrictions.
-
-The follow-up interview will include a walkthrough of your solution. You should be able to speak to every decision: why you structured things the way you did, which tools you used and why you chose them, and what trade-offs you considered. The goal is a conversation about craft, not a quiz.
-
----
+The app uses the PostgreSQL and RabbitMQ services provided by the company.
 
 ## Getting Started
 
-### Prerequisites
-
-- [Elixir](https://elixir-lang.org/install.html) (latest stable)
-- [Taskfile](https://taskfile.dev/installation/)
-- [Docker](https://docs.docker.com/get-docker/)
-
-### Bringing Up Infrastructure
-
-From the root of this repository:
-
+From the root of the homework repository, start PostgreSQL and RabbitM!:  
 ```
 task init
 ```
 
-This will start PostgreSQL and RabbitMQ in Docker and initialize the RabbitMQ vhost, user, exchange, and queue your application will connect to.
+This starts the provided Docker containers and configures:  
+- PostgreSQL on `localhost:5433`
+- RabbitMQ on `localhost:5672`
+- RabbitMQ vhost: `homework`
+- Exchange: redacted
+- Queue: `work-inbound`
+- Routing key: `inbound`
 
-To tear everything down and start fresh:
+Move into the Elixir application:  
+```
+cd order_processor
+```
 
+Install dependencies:  
+```
+mix deps.get
+```
+
+Create the development database:  
+```
+mix ecto.create
+```
+
+Run migrations:  
+```
+mix ecto.migrate
+```
+
+Start the application:  
+```
+iex -S mix
+```
+
+When the application starts, the RabbitMQ consumer connects to the `work-inbound` queue and waits for messages.
+
+## Publishing a Sample Order
+A mix task is included for publishing a sample order:  
+```
+mix order_processor.publish_sample
+```
+
+![Generated message from mix task](image.png)  
+(The exact `event_id` and `order_number` will vary on each run due to `System.unique_integer/1` so the task can be run more than once.)
+
+The application calculates:
+```
+MUG-BLUE
+2 x 1500 = 3000 cents
+
+STICKER
+3 x 250 = 750 cents
+
+Order Total = 3750 cents
+```
+
+## Application Flow
+
+The main processing path is:  
+```
+RabbitMQ  
+    ↓  
+RabbitConsumer
+    ↓   
+OrderWorker (GenServer)
+    ↓
+Orders
+    ↓
+Ecto / PostgreSQL 
+```    
+
+## Rabbit Consumer
+`OrderProcessor.RabbitConsumer` subscribes to the provided `work-inbound` RabbitMQ queue. Messages are manually acknowleged so they are not removed from RabbitMQ until processing succeeds.
+
+The consumer currently handles messages as:  
+- Valid order: process and ACK
+- Malformed JSON: reject without requeue
+- Invalid order: reject without requeue
+- Unexpected worker exit: NACK and requeue
+
+The consumer uses a prefetch cound of `1`, which matches the current single-worker design and keeps processing simple.
+
+## OrderWorker
+
+`OrderProcessor.OrderWorker` is a GenServer supervised by the application. The RabbitMQ consumer sends each decoded order to the worker using `GenServer.call/2`. The worker delegates the actual order processing to the `Orders` module and keeps in-memory counts of successful and failed attempts. These counters are intentionally not persistent leaving PostgreSQL the source of the truth.
+
+## Orders
+
+`OrderProcessor.Orders` contains the main domain logic.
+
+It:
+- Validates incoming item data
+- Calculates each line total
+- Calculates the complete order total
+- Builds Ecto changesets
+- Persists the order and its items
+
+Order creation uses `Ecto.multi` so the order and all of its items are stored in one db transaction. If any item fails validation, the entire transaction is rolled back. 
+
+## Database Design
+The application uses two tables:
+```
+orders
+------
+
+id
+event_id
+order_number
+customer_email
+total_cents
+processed_at
+inserted_at
+updated_at
+
+and:
+
+order_items
+-----------
+id
+order_id (foreign key referencing orders.id)
+sku
+quantity
+unit_price_cents
+line_total_cents
+inserted_at
+updated_at
+
+An order has many order items, and an order item belongs to one order.
+Deleting an order aslo deletes its associated items
+```
+
+## Money
+Monetary values are stored as integer cents rather than floating point values to avoid precision issues and keeps the calculations deterministic.
+
+## Idempotency
+Each incoming message contains an `event_id` which has a unique database constraint and is used to make message processing idempotent. If the same event is delivered more than once, the delivery creates the order and later deliveries return the already existing order rather than creating duplicates. Further, a duplicate `order_number` with a different `event_id` is still treated as an error because it represents a different event attempting to create the same business order. The database uniqueness constraint remains the final protection against concurrent duplicate processing.
+
+## Supervision
+The application uses a standard OTP supervision tree:
+```
+OrderProcessor.Supervisor
+↳ OrderProcessor.Repo
+↳ OrderProcessor.OrderWorker
+↳ OrderProcessor.RabbitConsumer
+```
+The supervisor uses a `:one_for_one` strategy so unexpected failures in a child process can be restarted without restarting the other children. The RabbitMQ consumer is disabled during normal automated tests and started explicitly by the integration test.
+
+## Testing
+Create and migrate the test db:
+```
+MIX_ENV=test mix ecto.create
+MIX_ENV=test mix ecto.migrate
+```
+
+Run the test suite:
+```
+mix test
+mix test --trace (descriptive output)
+mix test --cover (with coverage)
+```
+
+The test suite covers:
+- Successful order processing
+- Calculated order and line totals
+- Transactional rollback for invalid items
+- Duplicate event idempotency
+- Conflicting order numbers
+- GenServer success and failure tracking
+- RabbitMQ end to end processing
+- Malformed RabbitMQ messages
+- Invalid RabbitMQ orders
+- Continued consumption after rejected messages
+
+The rabbitMQ integration test uses the real provided queue rather than mocking the AMPQ client.
+
+## Design Decisions
+### Plain Mix application instead of Phoenix
+In the interest of time, the application does not expose an HTTP interface. Phoenix would add functionality that isn't needed at the moment. The supervised Mix application keeps the focus on OTP, RabbitMQ and persistence.
+
+### Single GenServer worker
+The current implementation process work through one GenServer. This keeps the concurrency model easy to reason about while meeting the requirements of the exercise. For higher throughput, my next step would be a supervised worker pool.
+
+### Ecto.Multi for persistence
+An order and its items should either all be persisted or none at all. `Ecto.Multi` makes that transaction boundary explicit and also works well with a dynamic number of order items.
+
+### Database constraints in addition to validations
+Changesets validate input before persistence, but important invariants such as unique event IDs / order numbers and foreign key relationships are also enforced by PostgreSQL. The database remains responsible for protecting the data even if application level validation is bypassed or concurrent workers race with one another. 
+
+### Manual RabbitMQ acknowledgements
+Messages are acknowledged only after successful processing and known invalid messages are rejected without requeueing so they do not create an endless processing loop. Unexpected processing failures are currently requeued/
+
+### What I would build next
+I would love to further explore:
+- Multiple supervised workers for concurrent processing
+- Bounded retry handling
+- A RabbitMQ dead letter queue for messages that repeatedly fail
+- Worker identity and processing attempt tracking for better observability
+- Stronger RabbitMQ connection recovery testing
+- Telemetry and application metrics
+- Structured logging and correlation IDs
+- Environment based configuration for credentials
+- Additional integration testing around RabbitMQ channel failures
+- Graceful shutdown behavior for in-flight messages
+
+One limitation of the current retry strategy is that unexpected failures are requeued without a retry limit. In a production system I would use bounded retries and a dead letter queue to avoid poisonous messages from cycling indefinitely.
+
+## Resetting the Infrastructure
+Tear down the provided Docker infrastructure and recreate PostgreSQL and RabbitMQ from a clean slate
+From the repository root:
 ```
 task destroy
 task init
 ```
 
-To see all available tasks:
-
-```
-task -l
-```
-
-### Connection Details
-
-**PostgreSQL**
-- Host: `localhost`
-- Port: `5433`
-- User: `postgres`
-- Password: `postgres`
-
-**RabbitMQ**
-- AMQP Port: `5672` (non-TLS)
-- App credentials: user `app_user`, password `rabbitmq`
-- Vhost: `homework`
-- Exchange: `waymark` (direct)
-- Queue: `work-inbound`
-- Routing key: `inbound`
-
-**RabbitMQ Management UI**
-```
-task rabbitmq:ui
-```
-
-### Test Data
-
-You are responsible for publishing any test messages your application needs. The RabbitMQ management UI and `rabbitmqadmin` CLI (available inside the container) are both useful for this. You may also add a Taskfile task or Mix task to seed messages, whatever fits your workflow.
-
----
-
-## Submission
-
-Please send us:
-
-1. A link to your Git repository (GitHub, GitLab, or similar).
-2. Confirm your README covers how to run it, your design decisions, and next steps.
-
-Do not deploy the project publicly. We'd prefer this exercise stays fresh for future candidates.
-
----
-
-## FAQ
-
-**What is the purpose of this exercise?**
-
-We want to see how you approach building a small but real system. We'll use your submission as the starting point for a technical conversation during the interview, not as a pass/fail gate.
-
-**Can I make assumptions?**
-
-Yes. Where requirements are ambiguous, make a decision and document it in your README. You're welcome to reach out with questions too.
-
-**Do I need to deploy it?**
-
-No. Please don't — see above.
-
-**Are there coding standards I need to follow?**
-
-No strict standards. Write idiomatic Elixir as best you understand it, and show your own style. We're more interested in clarity and reasoning than adherence to any particular convention.
-
-**What if I've never used RabbitMQ before?**
-
-That's fine — we don't expect prior experience. The infrastructure is already configured for you. Internally we use [Lapin](https://github.com/lbonn/lapin), but you're free to use whatever library works for you. [Broadway RabbitMQ](https://github.com/dashbitco/broadway_rabbitmq) and the [amqp](https://github.com/pma/amqp) library are both popular options. The RabbitMQ management UI at `http://localhost:15672` is helpful for inspecting queues and publishing test messages manually.
-
-**What if I've never used Elixir before?**
-
-Also fine — the job description says no prior Elixir experience required, and we mean it. Show us how you learn and reason. A partial solution with a clear explanation of where you got stuck is genuinely useful to us.
+## Thank You
+Thanks for the opportunity to work through this exercise. This was my first time working with Elixir, OTP and RabbitMQ and I had a fantastic time learning them while putting this all together. I appreciate the chance to build something new and I'm look forward to talking through the decisions I made along the way.
