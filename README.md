@@ -208,7 +208,7 @@ An order and its items should either all be persisted or none at all. `Ecto.Mult
 Changesets validate input before persistence, but important invariants such as unique event IDs / order numbers and foreign key relationships are also enforced by PostgreSQL. The database remains responsible for protecting the data even if application level validation is bypassed or concurrent workers race with one another. 
 
 ### Manual RabbitMQ acknowledgements
-Messages are acknowledged only after successful processing and known invalid messages are rejected without requeueing so they do not create an endless processing loop. Unexpected processing failures are currently requeued/
+Messages are acknowledged only after successful processing and known invalid messages are rejected without requeueing so they do not create an endless processing loop. Unexpected processing failures are currently requeued.
 
 ### What I would build next
 I would love to further explore:
