@@ -1,6 +1,6 @@
 # Order Processor
 
-A small Elixir/OTP application that consumes order messages from Rabbit MQ, process them through a GenServer-backend worker and persists the results to PostgreSQL using Ecto.
+A small Elixir/OTP application that consumes order messages from RabbitMQ, process them through a GenServer-backend worker and persists the results to PostgreSQL using Ecto.
 
 The app accepts orders with one or more line items, calculates line totals and the overall order total then stores the order and its items in a single database transaction.
 
@@ -99,7 +99,7 @@ The consumer currently handles messages as:
 - Invalid order: reject without requeue
 - Unexpected worker exit: NACK and requeue
 
-The consumer uses a prefetch cound of `1`, which matches the current single-worker design and keeps processing simple.
+The consumer uses a prefetch count of `1`, which matches the current single-worker design and keeps processing simple.
 
 ## OrderWorker
 
@@ -123,7 +123,6 @@ The application uses two tables:
 ```
 orders
 ------
-
 id
 event_id
 order_number
@@ -192,17 +191,17 @@ The test suite covers:
 - Invalid RabbitMQ orders
 - Continued consumption after rejected messages
 
-The rabbitMQ integration test uses the real provided queue rather than mocking the AMPQ client.
+The RabbitMQ integration test uses the real provided queue rather than mocking the AMPQ client.
 
 ## Design Decisions
 ### Plain Mix application instead of Phoenix
 In the interest of time, the application does not expose an HTTP interface. Phoenix would add functionality that isn't needed at the moment. The supervised Mix application keeps the focus on OTP, RabbitMQ and persistence.
 
 ### Single GenServer worker
-The current implementation process work through one GenServer. This keeps the concurrency model easy to reason about while meeting the requirements of the exercise. For higher throughput, my next step would be a supervised worker pool.
+The current implementation process works through one GenServer. This keeps the concurrency model easy to reason about while meeting the requirements of the exercise. For higher throughput, my next step would be a supervised worker pool.
 
 ### Ecto.Multi for persistence
-An order and its items should either all be persisted or none at all. `Ecto.Multi` makes that transaction boundary explicit and also works well with a dynamic number of order items.
+An order and its items should either all persist or none at all. `Ecto.Multi` makes that transaction boundary explicit and also works well with a dynamic number of order items.
 
 ### Database constraints in addition to validations
 Changesets validate input before persistence, but important invariants such as unique event IDs / order numbers and foreign key relationships are also enforced by PostgreSQL. The database remains responsible for protecting the data even if application level validation is bypassed or concurrent workers race with one another. 
@@ -226,7 +225,7 @@ I would love to further explore:
 One limitation of the current retry strategy is that unexpected failures are requeued without a retry limit. In a production system I would use bounded retries and a dead letter queue to avoid poisonous messages from cycling indefinitely.
 
 ## Resetting the Infrastructure
-Tear down the provided Docker infrastructure and recreate PostgreSQL and RabbitMQ from a clean slate
+Tear down the provided Docker infrastructure and recreate PostgreSQL and RabbitMQ from a clean slate.
 From the repository root:
 ```
 task destroy
