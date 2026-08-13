@@ -3,16 +3,28 @@ defmodule OrderProcessor.OrderWorker do
 
   alias OrderProcessor.Orders
 
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  def start_link(opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
+    genserver_opts = if name, do: [name: name], else: []
+
+    GenServer.start_link(__MODULE__, %{}, genserver_opts)
   end
 
   def process(payload) do
-    GenServer.call(__MODULE__, {:process, payload})
+    process(__MODULE__, payload)
+  end
+
+  def process(server, payload) do
+    GenServer.call(server, {:process, payload})
   end
 
   def stats do
-    GenServer.call(__MODULE__, :stats)
+    stats(__MODULE__)
+  end
+
+  def stats(server) do
+    GenServer.call(server, :stats)
   end
 
   @impl true

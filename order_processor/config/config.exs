@@ -16,3 +16,5 @@ config :order_processor, :rabbitmq,
   queue: "work-inbound",
   exchange: "waymark",
   routing_key: "inbound"
+
+import_config "#{config_env()}.exs"

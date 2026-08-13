@@ -71,6 +71,12 @@ defmodule OrderProcessor.RabbitConsumer do
     {:noreply, state}
   end
 
+  @impl true
+  def terminate(_reason, state) do
+    Connection.close(state.connection)
+    :ok
+  end
+
   defp handle_delivery(payload, delivery_tag, channel) do
     case JSON.decode(payload) do
       {:ok, decoded_payload} ->
