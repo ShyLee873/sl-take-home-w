@@ -234,4 +234,4 @@ task init
 ```
 
 ## Thank You
-Thanks for the opportunity to work through this exercise. This was my first time working with Elixir, OTP and RabbitMQ and I had a fantastic time learning them while putting this all together. I appreciate the chance to build something new and I'm look forward to talking through the decisions I made along the way.
+Thanks for the opportunity to work through this exercise. This was my first time working with Elixir, OTP and RabbitMQ and I had a fantastic time learning them while putting this all together. I appreciate the chance to build something new and I'm looking forward to talking through the decisions I made along the way.
